@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全球犹太社区与以色列新闻聚合器</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
+    --text2: #94a3b8; --accent: #3b82f6; --accent2: #60a5fa;
+    --border: #334155; --success: #22c55e; --warn: #f59e0b; --danger: #ef4444;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+  }
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+    border-bottom: 1px solid var(--border); padding: 24px 20px;
+    position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px);
+  }
+  .header-inner {
+    max-width: 1200px; margin: 0 auto;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px; justify-content: space-between;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 42px; height: 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .logo-text h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo-text p { font-size: 12px; color: var(--text2); }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 14px;
+    transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { background: var(--border); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: var(--accent2); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { font-size: 13px; color: var(--text2); display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+  .status-dot.loading { background: var(--warn); }
+  .status-dot.error { background: var(--danger); animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .filters {
+    max-width: 1200px; margin: 0 auto; padding: 16px 20px;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+  .filter-chip {
+    padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text2); font-size: 13px; cursor: pointer; transition: all 0.2s;
+  }
+  .filter-chip:hover, .filter-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+  .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+  @media (max-width: 480px) { .news-grid { grid-template-columns: 1fr; } }
+  .news-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px; transition: all 0.2s; display: flex; flex-direction: column; gap: 10px;
+  }
+  .news-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(59,130,246,0.1); }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .source-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent2); }
+  .source-badge .lang-tag { background: rgba(59,130,246,0.15); color: var(--accent2); padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .time { font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .title { font-size: 16px; font-weight: 600; line-height: 1.5; color: var(--text); }
+  .title a { color: inherit; text-decoration: none; transition: color 0.2s; }
+  .title a:hover { color: var(--accent2); text-decoration: underline; text-underline-offset: 3px; }
+  .translation { font-size: 14px; color: #cbd5e1; padding: 10px 14px; background: rgba(59,130,246,0.08); border-radius: 8px; border-left: 3px solid var(--accent); line-height: 1.6; }
+  .translation-label { font-size: 11px; color: var(--accent2); margin-bottom: 4px; font-weight: 500; }
+  .desc { font-size: 13px; color: var(--text2); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .loading-state { text-align: center; padding: 60px 20px; color: var(--text2); }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-msg { background: rgba(239,68,68,0.1); border: 1px solid var(--danger); color: #fca5a5; padding: 16px; border-radius: 10px; text-align: center; margin: 20px 0; }
+  .stats-bar { max-width: 1200px; margin: 0 auto; padding: 12px 20px; display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--text2); border-bottom: 1px solid var(--border); }
+  .stat-item { display: flex; align-items: center; gap: 6px; }
+  .empty-state { text-align: center; padding: 80px 20px; color: var(--text2); }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--card); border: 1px solid var(--border); padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 200; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .load-more { text-align: center; padding: 20px; }
+  .load-more .btn { padding: 10px 30px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">✡</div>
+      <div class="logo-text">
+        <h1>全球犹太社区与以色列新闻聚合器</h1>
+        <p>Global Jewish & Israel News Aggregator · 服务端版</p>
+      </div>
+    </div>
+    <div class="controls">
+      <span class="status" id="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">连接中...</span>
+      </span>
+      <button class="btn primary" id="refreshBtn" onclick="manualRefresh()">
+        <span>🔄</span> 手动更新
+      </button>
+      <button class="btn" id="autoToggle" onclick="toggleAuto()">
+        <span id="autoIcon">⏸</span> 自动刷新: 开
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar" style="display:none;">
+  <div class="stat-item">📰 <span id="totalCount">0</span> 条新闻</div>
+  <div class="stat-item">🌐 <span id="sourceCount">0</span> 个来源</div>
+  <div class="stat-item">🕐 更新于 <span id="updateTime">--</span></div>
+</div>
+
+<div class="filters" id="filters" style="display:none;">
+  <span style="color:var(--text2);font-size:13px;">筛选:</span>
+  <div class="filter-chip active" onclick="filterBy('all')">全部</div>
+  <div class="filter-chip" onclick="filterBy('en')">🇺🇸 英文</div>
+  <div class="filter-chip" onclick="filterBy('he')">🇮🇱 希伯来语</div>
+  <div class="filter-chip" onclick="filterBy('ru')">🇷🇺 俄语</div>
+  <div class="filter-chip" onclick="filterBy('fr')">🇫🇷 法语</div>
+</div>
+
+<div class="container">
+  <div id="newsContainer">
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>正在连接服务器获取新闻...</p>
+    </div>
+  </div>
+  <div class="load-more" id="loadMore" style="display:none;">
+    <button class="btn" onclick="loadMore()">加载更多</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = '';
+let allNews = [];
+let filteredNews = [];
+let autoRefresh = true;
+let refreshInterval = null;
+let currentFilter = 'all';
+let offset = 0;
+const LIMIT = 50;
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+function setStatus(text, type='loading') {
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('statusDot').className = 'status-dot ' + type;
+}
+function formatDate(dateStr) {
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return Math.floor(diff/60) + '分钟前';
+    if (diff < 86400) return Math.floor(diff/3600) + '小时前';
+    return d.toLocaleDateString('zh-CN', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  } catch(e) { return dateStr; }
+}
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+}
+
+async function fetchNews(reset = false) {
+  if (reset) offset = 0;
+  setStatus('获取中...', 'loading');
+  document.getElementById('refreshBtn').disabled = true;
+  try {
+    const langParam = currentFilter !== 'all' ? `&lang=${currentFilter}` : '';
+    const res = await fetch(`${API_BASE}/api/news?limit=${LIMIT}&offset=${offset}${langParam}`);
+    const json = await res.json();
+    if (!json.success) throw new Error('API Error');
+    if (reset) { allNews = json.data; } else { allNews.push(...json.data); }
+    filteredNews = [...allNews];
+    renderNews(reset);
+    updateStats(json);
+    setStatus(`已更新 · ${json.total} 条`, 'normal');
+    showToast(`已加载 ${json.data.length} 条新闻`);
+    document.getElementById('loadMore').style.display = allNews.length < json.total ? 'block' : 'none';
+  } catch (e) {
+    setStatus('获取失败', 'error');
+    document.getElementById('newsContainer').innerHTML = `
+      <div class="error-msg">
+        <p>⚠️ 连接服务器失败</p>
+        <p style="font-size:13px;margin-top:8px;">${escapeHtml(e.message)}</p>
+      </div>`;
+  } finally {
+    document.getElementById('refreshBtn').disabled = false;
+  }
+}
+
+function renderNews(clear = true) {
+  const container = document.getElementById('newsContainer');
+  const html = filteredNews.map(item => `
+    <div class="news-card" data-lang="${item.lang}">
+      <div class="card-header">
+        <span class="source-badge">
+          ${item.region === 'Israel' ? '🇮🇱' : item.region === 'USA' ? '🇺🇸' : item.region === 'France' ? '🇫🇷' : '🌐'}
+          ${escapeHtml(item.source)}
+          <span class="lang-tag">${item.lang.toUpperCase()}</span>
+        </span>
+        <span class="time">${formatDate(item.pubDate)}</span>
+      </div>
+      <div class="title">
+        <a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">
+          ${escapeHtml(item.title)}
+        </a>
+      </div>
+      ${item.translation ? `
+      <div class="translation">
+        <div class="translation-label">🇨🇳 中文翻译</div>
+        ${escapeHtml(item.translation)}
+      </div>` : ''}
+      ${item.description ? `<div class="desc">${escapeHtml(item.description)}</div>` : ''}
+    </div>
+  `).join('');
+  if (clear) { container.innerHTML = html; } else { container.innerHTML += html; }
+}
+
+function updateStats(json) {
+  document.getElementById('totalCount').textContent = json.total;
+  const sources = new Set(allNews.map(n => n.source));
+  document.getElementById('sourceCount').textContent = sources.size;
+  document.getElementById('updateTime').textContent = json.lastUpdate 
+    ? new Date(json.lastUpdate).toLocaleTimeString('zh-CN') : '--';
+  document.getElementById('statsBar').style.display = 'flex';
+  document.getElementById('filters').style.display = 'flex';
+}
+
+function filterBy(lang) {
+  currentFilter = lang;
+  document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
+  event.target.classList.add('active');
+  fetchNews(true);
+}
+
+function loadMore() {
+  offset += LIMIT;
+  fetchNews(false);
+}
+
+async function manualRefresh() {
+  const res = await fetch(`${API_BASE}/api/refresh`, { method: 'GET' });
+  const json = await res.json();
+  showToast(json.message);
+  setTimeout(() => fetchNews(true), 2000);
+}
+
+function toggleAuto() {
+  autoRefresh = !autoRefresh;
+  const btn = document.getElementById('autoToggle');
+  if (autoRefresh) {
+    btn.innerHTML = '<span id="autoIcon">⏸</span> 自动刷新: 开';
+    startAutoRefresh();
+    showToast('自动刷新已开启');
+  } else {
+    btn.innerHTML = '<span id="autoIcon">▶</span> 自动刷新: 关';
+    stopAutoRefresh();
+    showToast('自动刷新已关闭');
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshInterval = setInterval(() => {
+    if (document.visibilityState === 'visible') fetchNews(true);
+  }, 300000);
+}
+function stopAutoRefresh() {
+  if (refreshInterval) clearInterval(refreshInterval);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  fetchNews(true);
+  startAutoRefresh();
+});
+</script>
+</body>
+</html>
