@@ -2,12 +2,14 @@ services:
   - type: web
     name: jewish-israel-news
     runtime: node
+    repo: https://github.com/CherieYingXue/Jewish-Israel-News
+    branch: main
     region: singapore
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
     healthCheckPath: /
-    autoDeploy: true
