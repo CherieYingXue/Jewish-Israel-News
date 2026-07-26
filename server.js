@@ -33,8 +33,59 @@ const RSS_SOURCES = [
 const TRANSLATE_TARGET = 'zh-CN';
 const TRANSLATE_CONCURRENCY = 3;
 const TRANSLATE_BATCH_DELAY_MS = 300;
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FUTURE_SKEW_MS = 60 * 60 * 1000;
+const ITEMS_PER_SOURCE = 30;
+
+// Dedicated Israel / Jewish news outlets: keep all stories.
+// General portals (Walla/Ynet/Maariv/Alliance) must match relevance keywords.
+const ALWAYS_RELEVANT_SOURCES = new Set([
+  'Times of Israel',
+  'Jerusalem Post',
+  'Haaretz',
+  'Ynetnews',
+  'i24NEWS',
+  'JTA',
+  'The Forward',
+  'Algemeiner',
+  'Israel National News',
+  'Jewish News Syndicate',
+  'Israel Hayom (עברית)',
+  '9 TV (Русский)',
+  'Vesty (Русский)',
+]);
+
+const RELEVANCE_KEYWORDS = [
+  'israel', 'israeli', 'jerusalem', 'tel aviv', 'tel-aviv', 'gaza', 'hamas', 'hezbollah',
+  'jewish', 'jews', 'judaism', 'jewry', 'antisemit', 'anti-semit', 'synagogue', 'idf',
+  'netanyahu', 'knesset', 'zionist', 'zionism', 'holocaust', 'hebrew', 'kosher',
+  'west bank', 'judea', 'samaria', 'settler', 'mossad', 'shin bet', 'kibbutz',
+  'palestine', 'palestinian', 'rafah', 'hostages', 'october 7', 'oct. 7', 'oct 7',
+  'ben gvir', 'smotrich', 'gallant', 'golan', 'haifa', 'ashkelon', 'beersheba',
+  'ישראל', 'ישראלי', 'ישראלים', 'ירושלים', 'תל אביב', 'תל-אביב', 'עזה', 'חמאס', 'חיזבאללה',
+  'יהודי', 'יהודים', 'יהדות', 'אנטישמי', 'צה״ל', 'צה"ל', 'צהל', 'נתניהו', 'כנסת', 'הכנסת',
+  'הגדה', 'רצועת', 'רצועה', 'חטוף', 'חטופים', 'ממשלה', 'הממשלה', 'קבינט', 'הקבינט',
+  'ראש הממשלה', 'ביטחון', 'חייל', 'חיילים', 'רקטה', 'יירוט', 'מתנחל', 'התנחלות',
+  'איראן', 'לבנון', 'סוריה', 'גולן', 'חיפה', 'אשקלון', 'באר שבע', 'קיבוץ', 'מושב',
+  'בן גביר', 'סמוטריץ', 'גנץ', 'לפיד', 'בנט',
+  'израил', 'израиль', 'евре', 'иерусалим', 'тель-авив', 'газа', 'хамас', 'антисемит',
+  'israël', 'juif', 'juive', 'juifs', 'jérusalem', 'antisémit', 'hébreu',
+];
 
 let newsCache = { data: [], translated: {}, lastUpdate: null, updating: false };
+
+function isWithin24Hours(pubDate) {
+  const t = new Date(pubDate).getTime();
+  if (Number.isNaN(t)) return false;
+  const age = Date.now() - t;
+  return age <= MAX_AGE_MS && age >= -FUTURE_SKEW_MS;
+}
+
+function isIsraelOrJewishRelated(item) {
+  if (ALWAYS_RELEVANT_SOURCES.has(item.source)) return true;
+  const text = `${item.title || ''} ${item.description || ''}`.toLowerCase();
+  return RELEVANCE_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()));
+}
 
 app.use(cors());
 app.use(express.json());
@@ -55,14 +106,14 @@ async function fetchRSS(source) {
     const channel = result.rss?.channel || result.feed;
     const rawItems = channel?.item || channel?.entry || [];
     const items = Array.isArray(rawItems) ? rawItems : [rawItems];
-    return items.slice(0, 15).map((item, idx) => {
+    return items.slice(0, ITEMS_PER_SOURCE).map((item, idx) => {
       let title = typeof item.title === 'string' ? item.title : (item.title?._ || '');
       let link = typeof item.link === 'string' ? item.link : (item.link?.href || '');
       if (Array.isArray(item.link)) link = item.link[0]?.href || item.link[0] || '';
       let desc = typeof item.description === 'string' ? item.description : (item.description?._ || item.summary || item.content?._ || '');
       desc = desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       if (desc.length > 300) desc = desc.substring(0, 300) + '...';
-      let pubDate = item.pubDate || item.published || item.updated || new Date().toISOString();
+      let pubDate = item.pubDate || item.published || item.updated || '';
       return {
         id: `${source.name}_${idx}_${Date.now()}`,
         title: title.trim(),
@@ -74,7 +125,7 @@ async function fetchRSS(source) {
         region: source.region,
         weight: source.weight
       };
-    }).filter(item => item.title && item.link);
+    }).filter(item => item.title && item.link && isWithin24Hours(item.pubDate));
   } catch (e) {
     console.error(`[ERROR] ${source.name}: ${e.message}`);
     return [];
@@ -127,14 +178,21 @@ async function updateNews() {
   if (newsCache.updating) return;
   newsCache.updating = true;
   console.log(`[${new Date().toISOString()}] 开始更新新闻...`);
-  const allNews = [];
+  const collected = [];
   const batchSize = 5;
   for (let i = 0; i < RSS_SOURCES.length; i += batchSize) {
     const batch = RSS_SOURCES.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(s => fetchRSS(s)));
-    results.forEach(items => allNews.push(...items));
-    console.log(`[PROGRESS] 已获取 ${allNews.length} 条`);
+    results.forEach(items => collected.push(...items));
+    console.log(`[PROGRESS] 已获取过去24小时内 ${collected.length} 条`);
   }
+
+  const allNews = collected.filter(isIsraelOrJewishRelated);
+  const dropped = collected.length - allNews.length;
+  if (dropped > 0) {
+    console.log(`[FILTER] 过滤掉 ${dropped} 条与以色列/犹太无关的新闻`);
+  }
+
   allNews.sort((a, b) => {
     try {
       const timeDiff = new Date(b.pubDate) - new Date(a.pubDate);
@@ -147,7 +205,7 @@ async function updateNews() {
   newsCache.data = allNews;
   newsCache.lastUpdate = new Date().toISOString();
   newsCache.updating = false;
-  console.log(`[DONE] 共 ${allNews.length} 条新闻，更新完成`);
+  console.log(`[DONE] 共 ${allNews.length} 条相关新闻（过去24小时），更新完成`);
 }
 
 app.get('/api/news', (req, res) => {
@@ -170,7 +228,12 @@ app.get('/api/sources', (req, res) => {
 });
 
 app.get('/api/version', (req, res) => {
-  res.json({ success: true, version: '2.0.0', translator: 'google-translate-api-x' });
+  res.json({
+    success: true,
+    version: '2.1.0',
+    translator: 'google-translate-api-x',
+    filters: { maxAgeHours: 24, israelJewishOnly: true },
+  });
 });
 
 app.get('/', (req, res) => {
