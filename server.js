@@ -169,6 +169,10 @@ app.get('/api/sources', (req, res) => {
   res.json({ success: true, sources: RSS_SOURCES.map(s => ({ name: s.name, lang: s.lang, region: s.region })) });
 });
 
+app.get('/api/version', (req, res) => {
+  res.json({ success: true, version: '2.0.0', translator: 'google-translate-api-x' });
+});
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
