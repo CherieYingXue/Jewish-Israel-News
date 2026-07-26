@@ -4,6 +4,7 @@ const xml2js = require('xml2js');
 const cron = require('node-cron');
 const cors = require('cors');
 const path = require('path');
+const { translate } = require('google-translate-api-x');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,8 +30,9 @@ const RSS_SOURCES = [
   { name: 'Alliance (Français)', url: 'https://www.alliancemagazine.org/feed/', lang: 'fr', region: 'France', weight: 5 },
 ];
 
-const TRANSLATE_API = 'https://api.mymemory.translated.net/get';
-const CACHE_DURATION = 5 * 60 * 1000;
+const TRANSLATE_TARGET = 'zh-CN';
+const TRANSLATE_CONCURRENCY = 3;
+const TRANSLATE_BATCH_DELAY_MS = 300;
 
 let newsCache = { data: [], translated: {}, lastUpdate: null, updating: false };
 
@@ -79,29 +81,45 @@ async function fetchRSS(source) {
   }
 }
 
-async function translateText(text, lang) {
+async function translateText(text, lang, retries = 2) {
   if (!text || text.length < 2) return '';
   const cacheKey = `${lang}_${text.substring(0, 100)}`;
   if (newsCache.translated[cacheKey]) return newsCache.translated[cacheKey];
-  try {
-    const pair = lang === 'he' ? 'iw|zh-CN' : `${lang}|zh-CN`;
-    const url = `${TRANSLATE_API}?q=${encodeURIComponent(text.substring(0, 500))}&langpair=${pair}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.responseData?.translatedText) {
-      newsCache.translated[cacheKey] = data.responseData.translatedText;
-      return data.responseData.translatedText;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await translate(text.substring(0, 500), {
+        from: lang,
+        to: TRANSLATE_TARGET,
+        forceFrom: true,
+        forceTo: true,
+      });
+      if (result.text) {
+        newsCache.translated[cacheKey] = result.text;
+        return result.text;
+      }
+    } catch (e) {
+      if (attempt === retries) {
+        console.warn(`[TRANSLATE ERROR] ${lang}: ${e.message}`);
+      } else {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      }
     }
-  } catch (e) { console.warn(`[TRANSLATE ERROR] ${e.message}`); }
+  }
   return '';
 }
 
 async function processTranslations(items) {
-  for (const item of items) {
-    if (item.lang === 'zh') continue;
-    const translated = await translateText(item.title, item.lang);
-    if (translated) item.translation = translated;
-    await new Promise(r => setTimeout(r, 200));
+  const toTranslate = items.filter(item => item.lang !== 'zh');
+  for (let i = 0; i < toTranslate.length; i += TRANSLATE_CONCURRENCY) {
+    const batch = toTranslate.slice(i, i + TRANSLATE_CONCURRENCY);
+    await Promise.all(batch.map(async (item) => {
+      const translated = await translateText(item.title, item.lang);
+      if (translated) item.translation = translated;
+    }));
+    if (i + TRANSLATE_CONCURRENCY < toTranslate.length) {
+      await new Promise(r => setTimeout(r, TRANSLATE_BATCH_DELAY_MS));
+    }
   }
 }
 
@@ -124,8 +142,8 @@ async function updateNews() {
       return timeDiff;
     } catch(e) { return 0; }
   });
-  console.log(`[TRANSLATE] 开始翻译前20条...`);
-  await processTranslations(allNews.slice(0, 20));
+  console.log(`[TRANSLATE] 开始翻译前30条...`);
+  await processTranslations(allNews.slice(0, 30));
   newsCache.data = allNews;
   newsCache.lastUpdate = new Date().toISOString();
   newsCache.updating = false;
