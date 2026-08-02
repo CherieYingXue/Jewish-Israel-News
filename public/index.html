@@ -179,6 +179,17 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+let waitTimer = null;
+
+function showUpdatingState(message) {
+  document.getElementById('newsContainer').innerHTML = `
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>${escapeHtml(message || '正在更新新闻，请稍候...')}</p>
+      <p style="font-size:13px;margin-top:8px;">首次加载或服务刚唤醒时可能需要几十秒</p>
+    </div>`;
+}
+
 async function fetchNews(reset = false) {
   if (reset) offset = 0;
   setStatus('获取中...', 'loading');
@@ -188,12 +199,35 @@ async function fetchNews(reset = false) {
     const res = await fetch(`${API_BASE}/api/news?limit=${LIMIT}&offset=${offset}${langParam}`);
     const json = await res.json();
     if (!json.success) throw new Error('API Error');
-    if (reset) { allNews = json.data; } else { allNews.push(...json.data); }
+    if (reset) { allNews = json.data || []; } else { allNews.push(...(json.data || [])); }
     filteredNews = [...allNews];
+
+    if ((!allNews.length) && (json.updating || !json.lastUpdate)) {
+      setStatus('更新中...', 'loading');
+      showUpdatingState('服务器正在抓取最新新闻...');
+      if (!waitTimer) {
+        waitTimer = setTimeout(() => {
+          waitTimer = null;
+          fetchNews(true);
+        }, 4000);
+      }
+      return;
+    }
+
+    if (!allNews.length) {
+      setStatus('暂无新闻', 'error');
+      document.getElementById('newsContainer').innerHTML = `
+        <div class="empty-state">
+          <p>暂无过去24小时内的相关新闻</p>
+          <p style="font-size:13px;margin-top:8px;">可点击右上角“手动更新”重试</p>
+        </div>`;
+      return;
+    }
+
     renderNews(reset);
     updateStats(json);
-    setStatus(`已更新 · ${json.total} 条`, 'normal');
-    showToast(`已加载 ${json.data.length} 条新闻`);
+    setStatus(json.updating ? `更新中 · ${json.total} 条` : `已更新 · ${json.total} 条`, json.updating ? 'loading' : 'normal');
+    if (reset) showToast(`已加载 ${json.data.length} 条新闻`);
     document.getElementById('loadMore').style.display = allNews.length < json.total ? 'block' : 'none';
   } catch (e) {
     setStatus('获取失败', 'error');
@@ -201,6 +235,7 @@ async function fetchNews(reset = false) {
       <div class="error-msg">
         <p>⚠️ 连接服务器失败</p>
         <p style="font-size:13px;margin-top:8px;">${escapeHtml(e.message)}</p>
+        <p style="margin-top:12px;"><button class="btn primary" onclick="manualRefresh(true)">强制重新更新</button></p>
       </div>`;
   } finally {
     document.getElementById('refreshBtn').disabled = false;
@@ -257,11 +292,23 @@ function loadMore() {
   fetchNews(false);
 }
 
-async function manualRefresh() {
-  const res = await fetch(`${API_BASE}/api/refresh`, { method: 'GET' });
-  const json = await res.json();
-  showToast(json.message);
-  setTimeout(() => fetchNews(true), 2000);
+async function manualRefresh(force = false) {
+  document.getElementById('refreshBtn').disabled = true;
+  setStatus(force ? '强制更新中...' : '触发更新...', 'loading');
+  showUpdatingState(force ? '正在强制重新抓取新闻...' : '正在触发更新...');
+  try {
+    const url = force ? `${API_BASE}/api/refresh?force=1` : `${API_BASE}/api/refresh`;
+    const res = await fetch(url, { method: 'GET' });
+    const json = await res.json();
+    showToast(json.message || (json.success ? '已触发更新' : '更新失败'));
+    if (!json.success) {
+      // Lock stuck or busy — force once.
+      if (!force) return manualRefresh(true);
+    }
+  } catch (e) {
+    showToast('触发更新失败: ' + e.message);
+  }
+  setTimeout(() => fetchNews(true), 2500);
 }
 
 function toggleAuto() {
